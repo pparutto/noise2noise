@@ -7,6 +7,8 @@
 
 import tensorflow as tf
 
+import random
+
 def parse_tfrecord_tf(record):
     features = tf.parse_single_example(record, features={
         'shape': tf.FixedLenFeature([3], tf.int64),
@@ -48,6 +50,51 @@ def create_dataset(train_tfrecords, minibatch_size, add_noise):
     dset = dset.map(parse_tfrecord_tf, num_parallel_calls=num_threads)
     dset = dset.shuffle(buffer_size=buf_size)
     dset = dset.map(lambda x: random_crop_noised_clean(x, add_noise))
+    dset = dset.batch(minibatch_size)
+    it = dset.make_one_shot_iterator()
+    return it
+
+def parse_tfrecord_tf_pp(record):
+    features = tf.parse_single_example(record, features={
+        'shape': tf.FixedLenFeature([3], tf.int64),
+        'data1': tf.FixedLenFeature([], tf.string),
+        'data2': tf.FixedLenFeature([], tf.string)})
+    data1 = tf.decode_raw(features['data1'], tf.uint8)
+    data2 = tf.decode_raw(features['data2'], tf.uint8)
+    return (tf.reshape(data1, features['shape']),
+            tf.reshape(data2, features['shape']))
+
+def pair(x, y):
+    min_pos = tf.convert_to_tensor([0, 0, 0])
+    max_pos = tf.convert_to_tensor([3, 256, 256])
+    return (tf.cast(tf.slice(x, min_pos, max_pos), tf.float32) / 255.0 - 0.5,
+            tf.cast(tf.slice(y, min_pos, max_pos), tf.float32) / 255.0 - 0.5)
+
+# size = [3, 256, 256]
+    # with tf.name_scope(None, "random_crop", [x, y, size]) as name:
+    #     v1 = tf.convert_to_tensor(x, name="v1")
+    #     v2 = tf.convert_to_tensor(y, name="v2")
+
+    #     size = tf.convert_to_tensor(size, dtype=tf.int32, name="size")
+    #     shape = tf.shape(v1)
+    #     limit = shape - size + 1
+    #     offset = tf.random_uniform(tf.shape(shape), dtype=size.dtype,
+    #                                maxval=size.dtype.max, seed=None) % limit
+
+    #     return (tf.slice(v1, offset, size, name=name),# / 255.0 - 0.5,
+    #             tf.slice(v2, offset, size, name=name))# / 255.0 - 0.5)
+
+def create_dataset_pp(train_tfrecords, minibatch_size):
+    print ('Setting up dataset source from', train_tfrecords)
+    buffer_mb   = 256
+    num_threads = 2
+    dset = tf.data.TFRecordDataset(train_tfrecords, compression_type='', buffer_size=buffer_mb<<20)
+    dset = dset.repeat()
+    buf_size = 1000
+    dset = dset.prefetch(buf_size)
+    dset = dset.map(parse_tfrecord_tf_pp, num_parallel_calls=num_threads)
+    dset = dset.shuffle(buffer_size=buf_size)
+    dset = dset.map(lambda x,y: pair(x, y))
     dset = dset.batch(minibatch_size)
     it = dset.make_one_shot_iterator()
     return it
