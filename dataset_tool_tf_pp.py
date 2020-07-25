@@ -11,25 +11,29 @@ import sys
 import argparse
 import tensorflow as tf
 
-import PIL.Image
-import numpy as np
+from os import path
 
-from collections import defaultdict
+import PIL.Image
+
+from numpy import array, shape, zeros
+from numpy.random import RandomState
+
+from datetime import datetime
+
+from math import ceil
 
 def load_stack(fname):
     im = PIL.Image.open(fname)
-    h,w = np.shape(im)
+    h,w = shape(im)
 
-    res = np.zeros((im.n_frames, 3, h, w))
+    res = zeros((im.n_frames, 3, h, w))
     for i in range(im.n_frames):
         im.seek(i)
-        res[i, 0, :, :] = np.array(im)
-        res[i, 1, :, :] = np.array(im)
-        res[i, 2, :, :] = np.array(im)
-    res = res.astype("uint8")
+        res[i, 0, :, :] = array(im)
+        res[i, 1, :, :] = res[i, 0, :, :]
+        res[i, 2, :, :] = res[i, 0, :, :]
 
-    return res
-
+    return res.astype("uint8")
 
 def shape_feature(v):
     return tf.train.Feature(int64_list=tf.train.Int64List(value=v))
@@ -37,41 +41,49 @@ def shape_feature(v):
 def bytes_feature(value):
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
-examples='''examples:
 
-  python %(prog)s --input-dir=./kodak --out=imagenet_val_raw.tfrecords
-'''
+parser = argparse.ArgumentParser(description='generate traning dataset as tf format')
+parser.add_argument("--seed", help="seed of random generator",
+                    type=int, default=None)
+parser.add_argument("input_folder",
+                    help="folder containing training stacks")
+parser.add_argument("perc",
+                    help="percentage ([0,1]) of frame pairs per to select per stack",
+                    type=float)
+parser.add_argument("out", help="Filename of the output tfrecords file")
 
-def main():
-    parser = argparse.ArgumentParser(
-        description='Convert a set of image files into a TensorFlow tfrecords training set.',
-        epilog=examples,
-        formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument("input_stack", help="Input image stack")
-    parser.add_argument("out", help="Filename of the output tfrecords file")
-    args = parser.parse_args()
+args = parser.parse_args()
 
-    print ('Loading image stack: %s' % args.input_stack)
-    #np.random.RandomState(0x1234f00d).shuffle(images)
+if args.seed is None:
+    rng = RandomState(datetime.now())
+else:
+    rng = RandomState(args.seed)
 
-    images = load_stack(args.input_stack)
 
-    #----------------------------------------------------------
-    outdir = os.path.dirname(args.out)
-    os.makedirs(outdir, exist_ok=True)
-    writer = tf.python_io.TFRecordWriter(args.out)
-    for i in range(images.shape[0] // 2):
-        feature = {
-          'shape': shape_feature(images[i].shape),
-          'data1': bytes_feature(tf.compat.as_bytes(images[i,:,:,:].tostring())),
-          'data2': bytes_feature(tf.compat.as_bytes(images[i+1,:,:,:].tostring()))
-        }
-        example = tf.train.Example(features=tf.train.Features(feature=feature))
+outdir = os.path.dirname(args.out)
+os.makedirs(outdir, exist_ok=True)
+writer = tf.python_io.TFRecordWriter(args.out)
+
+ntrain = 0
+for fname in [e for e in os.listdir(args.input_folder)
+              if path.isfile(path.join(args.input_folder, e))]:
+    stck = load_stack(path.join(args.input_folder, fname))
+    idxs = rng.randint(0, high=stck.shape[0] - 1,
+                       size=ceil(args.perc * stck.shape[0]))
+    for i in idxs:
+        offx = rng.randint(0, high=stck.shape[2] - 256)
+        offy = rng.randint(0, high=stck.shape[3] - 256)
+
+        feat = {'shape': shape_feature([3, 256, 256]),
+                'data1': bytes_feature(tf.compat.as_bytes(stck[i,   :, offx:(offx+256), offy:(offy+256)].tostring())),
+                'data2': bytes_feature(tf.compat.as_bytes(stck[i+1, :, offx:(offx+256), offy:(offy+256)].tostring()))}
+        example = tf.train.Example(features=tf.train.Features(feature=feat))
         writer.write(example.SerializeToString())
+    print ('{}: added {} examples'.format(fname, len(idxs)))
+    ntrain += len(idxs)
 
-    print(images.shape)
+writer.close()
 
+print("Training set size = {}".format(ntrain))
 
-if __name__ == "__main__":
-    main()
+print("DONE")

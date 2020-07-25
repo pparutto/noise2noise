@@ -20,32 +20,6 @@ from util import save_image, save_snapshot
 from validation import ValidationSet
 from dataset import create_dataset_pp
 
-class AugmentGaussian:
-    def __init__(self, validation_stddev, train_stddev_rng_range):
-        self.validation_stddev = validation_stddev
-        self.train_stddev_range = train_stddev_rng_range
-
-    def add_train_noise_tf(self, x):
-        (minval,maxval) = self.train_stddev_range
-        shape = tf.shape(x)
-        rng_stddev = tf.random_uniform(shape=[1, 1, 1], minval=minval/255.0, maxval=maxval/255.0)
-        return x + tf.random_normal(shape) * rng_stddev
-
-    def add_validation_noise_np(self, x):
-        return x + np.random.normal(size=x.shape)*(self.validation_stddev/255.0)
-
-class AugmentPoisson:
-    def __init__(self, lam_max):
-        self.lam_max = lam_max
-
-    def add_train_noise_tf(self, x):
-        chi_rng = tf.random_uniform(shape=[1, 1, 1], minval=0.001, maxval=self.lam_max)
-        return tf.random_poisson(chi_rng*(x+0.5), shape=[])/chi_rng - 0.5
-
-    def add_validation_noise_np(self, x):
-        chi = 30.0
-        return np.random.poisson(chi*(x+0.5))/chi - 0.5
-
 def compute_ramped_down_lrate(i, iteration_count, ramp_down_perc, learning_rate):
     ramp_down_start_iter = iteration_count * (1 - ramp_down_perc)
     if i >= ramp_down_start_iter:
@@ -88,7 +62,6 @@ def train(
         noisy_input, noisy_target  = dataset_iter.get_next()
         noisy_input_split = tf.split(noisy_input, submit_config.num_gpus)
         noisy_target_split = tf.split(noisy_target, submit_config.num_gpus)
-        #clean_target_split = tf.split(clean_target, submit_config.num_gpus)
 
     # Define the loss function using the Optimizer helper class, this will take care of multi GPU
     opt = tflib.Optimizer(learning_rate=lrate_in, **config.optimizer_config)
@@ -130,11 +103,12 @@ def train(
             [source_mb, target_mb] = tfutil.run([noisy_input, noisy_target])
             denoised = net.run(source_mb)
             save_image(submit_config, denoised[0], "img_{0}_y_pred.png".format(i))
-            save_image(submit_config, target_mb[0], "img_{0}_y.png".format(i))
-            save_image(submit_config, source_mb[0], "img_{0}_x_aug.png".format(i))
+            save_image(submit_config, target_mb[0], "img_{0}_x.png".format(i))
+            save_image(submit_config, source_mb[0], "img_{0}_y.png".format(i))
 
             #validation_set.evaluate(net, i, noise_augmenter.add_validation_noise_np)
 
+            # lsqerr %-7.2f
             print('iter %-10d time %-12s sec/eval %-7.1f sec/iter %-7.2f maintenance %-6.1f' % (
                 autosummary('Timing/iter', i),
                 dnnlib.util.format_time(autosummary('Timing/total_sec', time_total)),
@@ -145,6 +119,8 @@ def train(
             dnnlib.tflib.autosummary.save_summaries(summary_log, i)
             ctx.update(loss='run %d' % submit_config.run_id, cur_epoch=i, max_epoch=iteration_count)
             time_maintenance = ctx.get_last_update_interval() - time_train
+
+            save_snapshot(submit_config, net, str(i))
 
         lrate = compute_ramped_down_lrate(i, iteration_count, ramp_down_perc, learning_rate)
         tfutil.run([train_step], {lrate_in: lrate})

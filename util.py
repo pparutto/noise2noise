@@ -58,3 +58,8 @@ def infer_image(net, img):
         padded_img  = np.pad(img, ((0,0),(0,ph),(0,pw)), 'reflect')
     inferred = net.run(np.expand_dims(padded_img, axis=0), width=w+pw, height=h+ph)
     return clip_to_uint8(crop_np(inferred[0], 0, 0, w, h))
+
+
+def infer_image_pp(net, img):
+    inferred = net.run(img)
+    return (np.mean(inferred[0],1) * 2**16).astype("uint16")
