@@ -71,15 +71,16 @@ if __name__ == "__main__":
 
         train_config.train_tfrecords = submit.get_path_from_template(args.tfrecords)
 
-        print (train_config)
+        print (train_config.train_tfrecords)
         dnnlib.submission.submit.submit_run(submit_config, **train_config)
 
     def infer_stack(args):
         tmp = Image.open(args.stack)
         h,w = np.shape(tmp)
+        N = tmp.n_frames
 
-        imgs = np.zeros((tmp.n_frames, 3, h, w))
-        for i in range(tmp.n_frames):
+        imgs = np.zeros((N, 3, h, w))
+        for i in range(N):
             tmp.seek(i)
             imgs[i, 0, :, :] = np.array(tmp)
             imgs[i, 1, :, :] = np.array(tmp)
@@ -90,13 +91,14 @@ if __name__ == "__main__":
         tfutil.init_tf(tf_config)
         net = util.load_snapshot(args.network)
 
-        res = np.zeros(imgs.shape)
-        for i in range(imgs.shape[0]):
-            res[i,:,:,:] = util.infer_image(net, imgs[i,:,:,:])
+        res = np.empty((N, h, w), dtype="uint16")
+        for i in range(N):
+            res[i,:,:] = util.infer_image_pp(net, imgs[i,:,:,:])
 
-        tmp = Image.fromarray(res[0,:,:,:].transpose([1,2,0]).astype("uint8"))
+        #tmp = Image.fromarray(res[0,:,:,:].transpose([1,2,0]).astype("uint8"))
+        tmp = Image.fromarray(res[0,:,:])
         tmp.save(args.out, format="tiff",
-                 append_images=[Image.fromarray(res[i,:,:,:].transpose([1,2,0]).astype("uint8")) for i in range(1, res.shape[0])],
+                 append_images=[Image.fromarray(res[i,:,:]) for i in range(1, res.shape[0])],
                  save_all=True)
 
     # Train by default

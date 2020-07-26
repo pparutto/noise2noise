@@ -16,7 +16,7 @@ import dnnlib.util as util
 
 import config
 
-from util import save_image, save_snapshot
+from util import save_image_pp, save_snapshot
 from validation import ValidationSet
 from dataset import create_dataset_pp
 
@@ -102,9 +102,9 @@ def train(
             # Evaluate 'x' to draw a batch of inputs
             [source_mb, target_mb] = tfutil.run([noisy_input, noisy_target])
             denoised = net.run(source_mb)
-            save_image(submit_config, denoised[0], "img_{0}_y_pred.png".format(i))
-            save_image(submit_config, target_mb[0], "img_{0}_x.png".format(i))
-            save_image(submit_config, source_mb[0], "img_{0}_y.png".format(i))
+            save_image_pp(submit_config, denoised[0], "img_{0}_y_pred.png".format(i))
+            save_image_pp(submit_config, target_mb[0], "img_{0}_x.png".format(i))
+            save_image_pp(submit_config, source_mb[0], "img_{0}_y.png".format(i))
 
             #validation_set.evaluate(net, i, noise_augmenter.add_validation_noise_np)
 

@@ -33,6 +33,17 @@ def load_snapshot(fname):
         return pickle.load(f)
 
 
+def clip_to_uint8(arr):
+    return np.clip((arr + 0.5) * 255.0 + 0.5, 0, 255).astype(np.uint8)
+
+def clip_to_uint16(arr):
+    M = 2**16 - 1.0
+    return np.clip((arr + 0.5) * M + 0.5, 0, M).astype(np.uint16)
+
+def crop_np(img, x, y, w, h):
+    return img[:, y:h, x:w]
+
+
 def save_image(submit_config, img_t, filename):
     t = img_t.transpose([1, 2, 0])  # [RGB, H, W] -> [H, W, RGB]
     if t.dtype in [np.float32, np.float64]:
@@ -41,11 +52,10 @@ def save_image(submit_config, img_t, filename):
         assert t.dtype == np.uint8
     PIL.Image.fromarray(t, 'RGB').save(os.path.join(submit_config.run_dir, filename))
 
-def clip_to_uint8(arr):
-    return np.clip((arr + 0.5) * 255.0 + 0.5, 0, 255).astype(np.uint8)
+def save_image_pp(submit_config, img_t, filename):
+    t = clip_to_uint8(np.mean(img_t, axis=0))
+    PIL.Image.fromarray(t).save(os.path.join(submit_config.run_dir, filename))
 
-def crop_np(img, x, y, w, h):
-    return img[:, y:h, x:w]
 
 # Run an image through the network (apply reflect padding when needed
 # and crop back to original dimensions.)
@@ -61,5 +71,6 @@ def infer_image(net, img):
 
 
 def infer_image_pp(net, img):
-    inferred = net.run(img)
-    return (np.mean(inferred[0],1) * 2**16).astype("uint16")
+    M = 2**16 - 1.0
+    res = net.run(np.expand_dims(img, axis=0), width=img.shape[1], height=img.shape[2])
+    return clip_to_uint16(np.mean(res[0,:,:,:], axis=0))
